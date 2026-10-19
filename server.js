@@ -11,17 +11,20 @@ const TICK = 30; // simulações por segundo
 const NAMES = ['Sol', 'Mar', 'Brasa', 'Mata'];
 const DIRS = new Set(['up', 'down', 'left', 'right']);
 const INDEX = path.join(__dirname, 'public', 'index.html');
+const INDEX_ROOT = path.join(__dirname, 'index.html');
 
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   if (url === '/favicon.ico') { res.writeHead(204); return res.end(); }
   if (url === '/health') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('ok'); }
   if (url === '/' || url === '/index.html') {
-    return fs.readFile(INDEX, (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('erro'); }
+    // procura a página em public/index.html e, se não achar, em index.html na raiz
+    return fs.readFile(INDEX, (e1, b1) => e1 ? fs.readFile(INDEX_ROOT, (e2, b2) => e2 ? done(e2) : done(null, b2)) : done(null, b1));
+    function done(err, buf) {
+      if (err) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }); return res.end('Arquivo index.html não encontrado no servidor.'); }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
       res.end(buf);
-    });
+    }
   }
   res.writeHead(404, { 'content-type': 'text/plain' }); res.end('Não encontrado');
 });
