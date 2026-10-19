@@ -8,7 +8,8 @@ const game = require('./game');
 
 const PORT = process.env.PORT || 3000;
 const TICK = 30; // simulações por segundo
-const NAMES = ['Sol', 'Mar', 'Brasa', 'Mata'];
+const SLOTS = game.MAX_PLAYERS;
+const NAMES = ['Sol', 'Mar', 'Brasa', 'Mata', 'Uva', 'Laranja', 'Rosa', 'Neve', 'Lagoa', 'Limão']; // um por lugar, combinando com a cor
 const DIRS = new Set(['up', 'down', 'left', 'right']);
 const INDEX = path.join(__dirname, 'public', 'index.html');
 const INDEX_ROOT = path.join(__dirname, 'index.html');
@@ -49,6 +50,7 @@ function cleanName(n) { return String(n || '').replace(/[<>]/g, '').trim().slice
 function roomInfo(room) {
   return {
     code: room.code, host: room.hostId, toWin: room.toWin, botLvl: room.botLvl, phase: room.phase, wins: room.wins, round: room.round,
+    map: game.mapSize(room.slots.filter(s => s.type !== 'empty').length),
     slots: room.slots.map((s, i) => ({ type: s.type, name: s.type === 'bot' ? `Bot ${NAMES[i]}` : s.name, sid: s.sid || null })),
   };
 }
@@ -107,8 +109,8 @@ const handlers = {
     leaveRoom(ws);
     const code = newCode();
     const room = {
-      code, hostId: ws.cid, toWin: 3, botLvl: 1, phase: 'lobby', wins: [0, 0, 0, 0], round: 0, endDelay: 4000,
-      slots: [{ type: 'human', sid: ws.cid, name: cleanName(name) }, { type: 'empty' }, { type: 'empty' }, { type: 'empty' }],
+      code, hostId: ws.cid, toWin: 3, botLvl: 1, phase: 'lobby', wins: new Array(SLOTS).fill(0), round: 0, endDelay: 4000,
+      slots: [{ type: 'human', sid: ws.cid, name: cleanName(name) }, ...Array.from({ length: SLOTS - 1 }, () => ({ type: 'empty' }))],
       S: null, loop: null, next: null, resolved: false,
     };
     rooms.set(code, room); ws.room = code;
@@ -121,7 +123,7 @@ const handlers = {
     if (room.phase !== 'lobby') return { ok: false, error: 'Essa sala está no meio de uma partida. Tente quando ela voltar para a sala de espera.' };
     if (ws.room === room.code) return { ok: true, code: room.code };
     const i = room.slots.findIndex(s => s.type === 'empty');
-    if (i < 0) return { ok: false, error: 'A sala está cheia (4 lugares). Peça ao anfitrião para tirar um bot.' };
+    if (i < 0) return { ok: false, error: `A sala está cheia (${SLOTS} lugares). Peça ao anfitrião para tirar um bot.` };
     leaveRoom(ws);
     room.slots[i] = { type: 'human', sid: ws.cid, name: cleanName(name) };
     ws.room = room.code;
@@ -131,7 +133,7 @@ const handlers = {
   leave(ws) { leaveRoom(ws); },
   setSlot(ws, { i, type } = {}) {
     const room = hostRoom(ws); if (!room) return;
-    if (!(i >= 0 && i < 4) || room.slots[i].type === 'human' || !['bot', 'empty'].includes(type)) return;
+    if (!(i >= 0 && i < SLOTS) || room.slots[i].type === 'human' || !['bot', 'empty'].includes(type)) return;
     room.slots[i] = { type }; sendRoom(room);
   },
   options(ws, { toWin, botLvl } = {}) {
@@ -143,7 +145,7 @@ const handlers = {
   start(ws) {
     const room = hostRoom(ws); if (!room) return;
     if (room.slots.filter(s => s.type !== 'empty').length < 2) return { ok: false, error: 'Precisa de pelo menos dois participantes. Chame um amigo ou adicione um bot.' };
-    room.wins = [0, 0, 0, 0]; room.round = 0;
+    room.wins = new Array(SLOTS).fill(0); room.round = 0;
     startRound(room);
     return { ok: true };
   },

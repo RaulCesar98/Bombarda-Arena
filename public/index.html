@@ -42,7 +42,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .lobby{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;max-width:900px}
 @media (max-width:760px){.lobby{grid-template-columns:minmax(0,1fr)}}
 .code{font-family:var(--display);font-size:44px;letter-spacing:.18em;color:var(--accent);line-height:1}
-.slots{display:grid;gap:8px;margin:14px 0}
+.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin:14px 0}
 .slot{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:10px;background:var(--panel-2);border-radius:6px;padding:10px}
 .slot.me{box-shadow:inset 0 0 0 2px var(--accent)}
 .dot{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
@@ -51,6 +51,8 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 .game{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:16px;align-items:start}
 @media (max-width:840px){.game{grid-template-columns:minmax(0,1fr)}}
+#gMain{min-width:0;width:100%;justify-self:center}
+.game.many{grid-template-columns:minmax(0,1fr)}
 .bar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-family:var(--display);font-size:13px;text-transform:uppercase;color:var(--muted);padding:0 2px 8px}
 .bar b{color:var(--fg);font-weight:400;font-variant-numeric:tabular-nums}
 .bar button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:5px 9px;cursor:pointer}
@@ -60,6 +62,7 @@ canvas{display:block;width:100%;height:auto;border-radius:6px;box-shadow:0 0 0 3
 .big{font-family:var(--display);font-size:clamp(22px,4vw,32px);margin:0 0 6px}
 aside{display:grid;gap:10px;min-width:0}
 @media (max-width:840px){aside{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+.game.many aside{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .pc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:6px}
 .pc.off{opacity:.35}.pc.dead .nm{text-decoration:line-through;color:var(--muted)}
 .pc.me{box-shadow:inset 0 0 0 2px var(--accent)}
@@ -67,7 +70,7 @@ aside{display:grid;gap:10px;min-width:0}
 .pc .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pips{display:flex;gap:4px}
 .pip{width:12px;height:12px;border-radius:3px;background:var(--bg);border:1px solid var(--line)}
-.stats{display:flex;gap:12px;font-family:var(--display);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stats{display:flex;flex-wrap:wrap;gap:2px 12px;font-family:var(--display);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .stats b{color:var(--fg);font-weight:400}
 .touch{display:none;justify-content:space-between;align-items:center;margin-top:14px;gap:16px;user-select:none;-webkit-user-select:none}
 @media (pointer:coarse){.touch{display:flex}}
@@ -100,7 +103,7 @@ aside{display:grid;gap:10px;min-width:0}
         <label for="codeIn">Código da sala
           <span class="inline"><input id="codeIn" maxlength="4" placeholder="AB12" autocomplete="off"><button class="btn" id="joinBtn" type="button">Entrar</button></span>
         </label>
-        <p class="muted" style="margin:0;font-size:13px">Até 4 jogadores por sala. Lugares vazios podem virar bots.</p>
+        <p class="muted" style="margin:0;font-size:13px">Até 10 jogadores por sala. Lugares vazios podem virar bots.</p>
       </div>
     </div>
     <p class="err" id="homeErr"></p>
@@ -127,6 +130,7 @@ aside{display:grid;gap:10px;min-width:0}
           <label for="botLvl">Bots
             <select id="botLvl"><option value="0">Calmos</option><option value="1">Normais</option><option value="2">Ferozes</option></select></label>
         </div>
+        <p class="muted" id="mapTxt" style="font-size:13px;margin:8px 0 0"></p>
         <div class="actions"><button class="btn" id="startBtn" type="button">Começar</button></div>
         <p class="muted" id="waitTxt" style="font-size:14px"></p>
         <p class="muted" style="font-size:13px;margin:12px 0 0">Controles: setas ou WASD para andar, Espaço ou Enter para soltar bomba. No celular aparece um controle na tela.</p>
@@ -136,8 +140,8 @@ aside{display:grid;gap:10px;min-width:0}
 
   <!-- jogo -->
   <section id="scrGame" hidden>
-    <div class="game">
-      <div style="min-width:0">
+    <div class="game" id="gameBox">
+      <div id="gMain">
         <div class="bar">
           <span>Sala <b id="gCode">----</b></span>
           <span>Rodada <b id="gRound">1</b></span>
@@ -199,9 +203,10 @@ function makeSocket() {
   open();
   return s;
 }
-const W = 15, H = 13, T = 48, FUSE = 2.6, FLAME = 0.55, INTERP = 100;
-const COLORS = ['#ffcf3f', '#4cc3ff', '#ff5d73', '#6fe08a'];
-const DARK = ['#b8901f', '#2a86b8', '#b8364a', '#3f9e58'];
+let W = 15, H = 13; // tamanho do mapa: o servidor manda a cada rodada e muda com o número de participantes
+const T = 48, FUSE = 2.6, FLAME = 0.55, INTERP = 100;
+const COLORS = ['#ffcf3f', '#4cc3ff', '#ff5d73', '#6fe08a', '#b07cff', '#ff9238', '#ff8fd8', '#f2f4ff', '#36d6c3', '#c8ef3a'];
+const DARK = ['#b8901f', '#2a86b8', '#b8364a', '#3f9e58', '#7a4fc4', '#bd5f10', '#c4529f', '#9aa0c9', '#1f958a', '#86a11f'];
 const D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const idx = (x, y) => y * W + x;
 const $ = id => document.getElementById(id);
@@ -237,7 +242,11 @@ socket.on('room', info => {
   room = info; me = info.slots.findIndex(s => s.sid === socket.id);
   $('homeErr').textContent = '';
   if (info.phase === 'lobby') { show('scrLobby'); renderLobby(); $('roundOv').hidden = true; }
-  else { show('scrGame'); $('gCode').textContent = info.code; $('gRound').textContent = info.round; hudSig = ''; }
+  else {
+    show('scrGame'); $('gCode').textContent = info.code; $('gRound').textContent = info.round; hudSig = '';
+    $('gameBox').classList.toggle('many', info.slots.filter(s => s.type !== 'empty').length > 4); // muitos jogadores: placar embaixo do mapa
+    fit();
+  }
 });
 function renderLobby() {
   const host = room.host === socket.id;
@@ -251,6 +260,7 @@ function renderLobby() {
     return `<div class="slot ${i === me ? 'me' : ''}"><span class="dot" style="background:${COLORS[i]}"></span><div style="min-width:0"><strong>${esc(label)}</strong><small>${sub}</small></div>${ctl}</div>`;
   }).join('');
   $('slots').querySelectorAll('select').forEach(sel => sel.onchange = () => socket.emit('setSlot', { i: +sel.dataset.i, type: sel.value }));
+  $('mapTxt').textContent = `Mapa ${room.map[0]} × ${room.map[1]} · cresce com o número de participantes`;
   $('toWin').value = room.toWin; $('botLvl').value = room.botLvl;
   $('toWin').disabled = $('botLvl').disabled = !host;
   $('startBtn').hidden = !host;
@@ -268,10 +278,18 @@ $('copyBtn').onclick = async () => {
 };
 
 /* ---------- estado do jogo ---------- */
+let curG = null, curIt = null; // o servidor só manda o terreno e os itens quando mudam
 socket.on('state', s => {
+  if (s.g !== undefined) curG = s.g;
+  if (s.it !== undefined) curIt = s.it;
+  if (curG === null || curIt === null) return;
+  s.g = curG; s.it = curIt;
   snaps.push({ t: performance.now(), s });
   if (snaps.length > 12) snaps.shift();
-  if (s.r !== lastRound) { lastRound = s.r; bg = prerender(s.g); $('roundOv').hidden = true; resendInput(); }
+  if (s.r !== lastRound) {
+    lastRound = s.r; W = s.w; H = s.h; cv.width = W * T; cv.height = H * T;
+    bg = prerender(s.g); fit(); $('roundOv').hidden = true; resendInput();
+  }
   for (const e of s.ev) sfx(e);
 });
 socket.on('roundOver', r => {
@@ -349,6 +367,14 @@ muteBtn.onclick = () => { muted = !muted; audio(); syncMute(); try { localStorag
 /* ---------- desenho ---------- */
 const cv = $('cv'), ctx = cv.getContext('2d');
 cv.width = W * T; cv.height = H * T;
+// mapas grandes não podem passar da altura da tela: reduz o tabuleiro inteiro, mantendo a proporção
+function fit() {
+  if ($('scrGame').hidden) return;
+  const main = $('gMain'); main.style.width = '';
+  const reserve = 130 + (matchMedia('(pointer:coarse)').matches ? 180 : 0); // título, barra e, no celular, o controle
+  main.style.width = Math.floor(Math.min(main.clientWidth, Math.max(300, (innerHeight - reserve) * W / H))) + 'px';
+}
+addEventListener('resize', fit);
 function prerender(g) {
   const c = document.createElement('canvas'); c.width = W * T; c.height = H * T; const x2 = c.getContext('2d');
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -487,6 +513,7 @@ function hud() {
   const sig = JSON.stringify([s.p.map(p => [p[2], p[3], p[8], p[9], p[10], p[11]]), room.wins, room.slots.map(x => x.name), me]);
   if (sig === hudSig) return; hudSig = sig;
   $('cards').innerHTML = s.p.map((p, i) => {
+    if (!p[2]) return ''; // lugar vazio: sem cartão
     const slot = room.slots[i];
     const name = slot.type === 'empty' ? 'Livre' : p[11] && slot.type === 'human' ? `${slot.name} (bot)` : slot.name;
     const pips = Array.from({ length: room.toWin }, (_, j) => `<span class="pip" style="${j < room.wins[i] ? `background:${COLORS[i]};border-color:${COLORS[i]}` : ''}"></span>`).join('');

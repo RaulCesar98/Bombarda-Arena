@@ -1,8 +1,9 @@
 // Lógica da partida. Roda só no servidor: os navegadores mandam teclas e recebem o estado.
-const W = 15, H = 13;
+let W = 15, H = 13; // tamanho do mapa da rodada em andamento: cresce com o número de participantes
+const MAX_PLAYERS = 10;
+const MAP_SIZES = [[15, 13], [17, 15], [19, 15], [21, 15], [23, 17], [25, 17], [27, 19]]; // de 4 ou menos até 10 participantes
 const EMPTY = 0, WALL = 1, CRATE = 2;
 const FUSE = 2.6, FLAME = 0.55, ROUND_TIME = 180, COUNTDOWN = 3;
-const SPAWNS = [[1, 1], [W - 2, H - 2], [W - 2, 1], [1, H - 2]];
 const D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const BASE_SPEED = 3.3, SPEED_STEP = 0.45;
@@ -10,11 +11,35 @@ const idx = (x, y) => y * W + x;
 
 let S = null; // estado da sala sendo processada no momento
 
+function mapSize(n) { return MAP_SIZES[Math.min(Math.max(n, 4) - 4, MAP_SIZES.length - 1)]; }
+
+// Pontos de partida de n participantes, na ordem em que os lugares são ocupados (cada novo longe dos anteriores).
+// Até 4: os cantos. Acima disso: casas ímpares da borda, espaçadas igualmente.
+function spawnPoints(n) {
+  if (n <= 4) return [[1, 1], [W - 2, H - 2], [W - 2, 1], [1, H - 2]].slice(0, n);
+  const ring = []; // sentido horário a partir do canto superior esquerdo
+  for (let x = 1; x <= W - 2; x += 2) ring.push([x, 1]);
+  for (let y = 3; y <= H - 2; y += 2) ring.push([W - 2, y]);
+  for (let x = W - 4; x >= 1; x -= 2) ring.push([x, H - 2]);
+  for (let y = H - 4; y >= 3; y -= 2) ring.push([1, y]);
+  const L = ring.length, gap = (a, b) => Math.min(Math.abs(a - b), L - Math.abs(a - b));
+  const left = Array.from({ length: n }, (_, k) => Math.round(k * L / n)), order = [left.shift()];
+  while (left.length) {
+    let best = 0, bd = -1;
+    left.forEach((c, j) => { const d = Math.min(...order.map(o => gap(c, o))); if (d > bd) { bd = d; best = j; } });
+    order.push(left.splice(best, 1)[0]);
+  }
+  return order.map(i => ring[i]);
+}
+
 function createRound(slotTypes, botLvl) {
+  const act = slotTypes.map((t, i) => (t === 'empty' ? -1 : i)).filter(i => i >= 0);
+  [W, H] = mapSize(act.length);
   const grid = new Uint8Array(W * H), hidden = new Int8Array(W * H).fill(-1);
+  const spawns = spawnPoints(act.length), spawnOf = new Map(act.map((slot, k) => [slot, spawns[k]]));
   const safe = new Set();
-  SPAWNS.forEach(([x, y]) => {
-    const dx = x === 1 ? 1 : -1, dy = y === 1 ? 1 : -1;
+  spawns.forEach(([x, y]) => {
+    const dx = x < W / 2 ? 1 : -1, dy = y < H / 2 ? 1 : -1;
     [[x, y], [x + dx, y], [x, y + dy]].forEach(([a, b]) => safe.add(idx(a, b)));
   });
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -27,18 +52,18 @@ function createRound(slotTypes, botLvl) {
     }
   }
   const players = slotTypes.map((t, i) => {
-    const [sx, sy] = SPAWNS[i];
+    const [sx, sy] = spawnOf.get(i) || [0, 0];
     return {
       id: i, on: t !== 'empty', bot: t === 'bot', alive: t !== 'empty',
       x: sx + 0.5, y: sy + 0.5, maxBombs: 1, active: 0, range: 2, speed: BASE_SPEED,
       inputDir: null, wantBomb: false, facing: [0, 1], walking: false, deathT: 0,
       bombCd: 0, ban: -1, banT: 0, think: 0, dir: null,
-      noise: Array.from({ length: W * H }, () => Math.random() * 2),
+      noise: t === 'empty' ? null : Array.from({ length: W * H }, () => Math.random() * 2),
       order: [...D4].sort(() => Math.random() - 0.5),
     };
   });
   return {
-    grid, hidden, items: new Int8Array(W * H).fill(-1), flame: new Float32Array(W * H), burn: new Float32Array(W * H),
+    W, H, sentG: null, sentIt: null, grid, hidden, items: new Int8Array(W * H).fill(-1), flame: new Float32Array(W * H), burn: new Float32Array(W * H),
     bombs: [], players, phase: 'countdown', phaseT: COUNTDOWN, timer: ROUND_TIME, t: 0,
     botLvl, events: [], result: null,
   };
@@ -211,7 +236,7 @@ function botThink(p, dt) {
 
 /* ---------- passo de simulação ---------- */
 function step(state, dt) {
-  S = state;
+  S = state; W = S.W; H = S.H;
   S.t += dt;
   for (let k = 0; k < W * H; k++) {
     if (S.flame[k] > 0) S.flame[k] = Math.max(0, S.flame[k] - dt);
@@ -270,16 +295,14 @@ function step(state, dt) {
 
 /* ---------- estado enviado aos navegadores ---------- */
 function snapshot(state, roundId) {
-  const s = state;
+  const s = state; W = s.W; H = s.H;
   const flames = [], burns = [];
   for (let k = 0; k < W * H; k++) {
     if (s.flame[k] > 0) flames.push(k, Math.round(s.flame[k] * 100));
     if (s.burn[k] > 0) burns.push(k, Math.round(s.burn[k] * 100));
   }
   const snap = {
-    r: roundId, ph: s.phase, pt: Math.round(s.phaseT * 100) / 100, tm: Math.max(0, Math.ceil(s.timer)),
-    g: Array.from(s.grid).join(''),
-    it: Array.from(s.items, v => (v < 0 ? '.' : v)).join(''),
+    r: roundId, w: W, h: H, ph: s.phase, pt: Math.round(s.phaseT * 100) / 100, tm: Math.max(0, Math.ceil(s.timer)),
     f: flames, bu: burns,
     b: s.bombs.map(b => [b.x, b.y, Math.round(b.fuse * 100)]),
     p: s.players.map(p => [
@@ -289,8 +312,12 @@ function snapshot(state, roundId) {
     ]),
     ev: s.events,
   };
+  // com 10 jogadores o mapa é grande: manda o terreno e os itens só quando mudam (o cliente guarda o último)
+  const g = Array.from(s.grid).join(''), it = Array.from(s.items, v => (v < 0 ? '.' : v)).join('');
+  if (g !== s.sentG) snap.g = s.sentG = g;
+  if (it !== s.sentIt) snap.it = s.sentIt = it;
   s.events = [];
   return snap;
 }
 
-module.exports = { createRound, step, snapshot, W, H };
+module.exports = { createRound, step, snapshot, mapSize, MAX_PLAYERS };

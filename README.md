@@ -1,6 +1,6 @@
 # Bombarda Arena (multiplayer online)
 
-Jogo de bombas para navegador, de 2 a 4 jogadores online, com bots para completar a sala.
+Jogo de bombas para navegador, de 2 a 10 jogadores online, com bots para completar a sala. O mapa cresce conforme o número de participantes (de 15×13, até 4 jogadores, a 27×19, com 10).
 Cada jogador entra pelo link, cria ou entra numa sala com um código de 4 letras e joga pelo próprio navegador (computador ou celular).
 
 ## Como funciona
