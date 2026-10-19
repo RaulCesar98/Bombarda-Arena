@@ -23,7 +23,7 @@ h1{font-family:var(--display);font-weight:700;font-size:clamp(26px,5vw,40px);mar
 h1 span{color:var(--accent)}
 .net{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .net i{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}
-.net.ok i{background:#6fe08a}.net.bad i{background:var(--bad)}
+.net.ok i{background:#6fe08a}.net.warn i{background:var(--accent)}.net.bad i{background:var(--bad)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
 .card h2{font-family:var(--display);font-size:20px;margin:0 0 6px}
 .muted{color:var(--muted)}
@@ -174,7 +174,7 @@ aside{display:grid;gap:10px;min-width:0}
 function makeSocket() {
   const handlers = {}, acks = new Map(); let ws = null, nextId = 1, tries = 0;
   const s = {
-    id: null, connected: false,
+    id: null, ip: null, connected: false,
     on(e, f) { (handlers[e] = handlers[e] || []).push(f); },
     fire(e, d) { (handlers[e] || []).forEach(f => f(d)); },
     emit(e, d, cb) {
@@ -188,7 +188,7 @@ function makeSocket() {
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.a) { const cb = acks.get(m.a); acks.delete(m.a); if (cb) cb(m.d); return; }
-      if (m.e === 'hello') { s.id = m.d.id; s.connected = true; tries = 0; s.fire('connect'); return; }
+      if (m.e === 'hello') { s.id = m.d.id; s.ip = m.d.ip; s.connected = true; tries = 0; s.fire('connect'); return; }
       s.fire(m.e, m.d);
     };
     ws.onclose = () => {
@@ -216,8 +216,24 @@ let room = null, me = -1, snaps = [], lastRound = -1, bg = null;
 
 /* ---------- conexão ---------- */
 const net = $('net'), netTxt = $('netTxt');
-socket.on('connect', () => { net.className = 'net ok'; netTxt.textContent = 'Conectado'; });
-socket.on('disconnect', () => { net.className = 'net bad'; netTxt.textContent = 'Sem conexão. Tentando de novo…'; show('scrHome'); room = null; });
+let ping = null; // último tempo de ida e volta até o servidor, em ms
+function serverAddr() { // IP do servidor (com a porta, se não for a padrão); se o servidor não informou, o endereço do site
+  const ip = socket.ip;
+  return ip ? (ip.includes(':') ? `[${ip}]` : ip) + (location.port ? ':' + location.port : '') : location.host;
+}
+function showNet() {
+  netTxt.textContent = ['Conectado', ping !== null && `${ping} ms`, serverAddr()].filter(Boolean).join(' · ');
+  net.className = 'net ' + (ping === null || ping < 100 ? 'ok' : ping < 200 ? 'warn' : 'bad');
+  net.title = 'Tempo de ida e volta e endereço do servidor';
+}
+function measurePing() {
+  if (!socket.connected) return;
+  const t = performance.now();
+  socket.emit('ping', null, r => { if (r && r.ok && socket.connected) { ping = Math.round(performance.now() - t); showNet(); } });
+}
+setInterval(measurePing, 2000);
+socket.on('connect', () => { ping = null; showNet(); measurePing(); });
+socket.on('disconnect', () => { ping = null; net.className = 'net bad'; netTxt.textContent = 'Sem conexão. Tentando de novo…'; show('scrHome'); room = null; });
 socket.on('retry', () => { netTxt.textContent = 'Reconectando… (o servidor gratuito pode levar até 1 minuto para acordar)'; });
 setTimeout(() => { if (!socket.connected) netTxt.textContent = 'Acordando o servidor… pode levar até 1 minuto'; }, 3000);
 

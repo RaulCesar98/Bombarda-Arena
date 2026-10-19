@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const dns = require('dns');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const game = require('./game');
@@ -29,6 +30,18 @@ const server = http.createServer((req, res) => {
   }
   res.writeHead(404, { 'content-type': 'text/plain' }); res.end('Não encontrado');
 });
+
+// IP pelo qual os jogadores chegam ao servidor. No Render ele fica atrás de um proxy e o endereço local da conexão é
+// interno, então resolve o endereço público do serviço (RENDER_EXTERNAL_HOSTNAME); nos outros casos usa o da conexão.
+let publicIp = null;
+const publicHost = process.env.RENDER_EXTERNAL_HOSTNAME;
+function resolvePublicIp() { dns.lookup(publicHost, { family: 4 }, (err, addr) => { if (!err) publicIp = addr; }); }
+if (publicHost) { resolvePublicIp(); setInterval(resolvePublicIp, 10 * 60 * 1000).unref(); }
+function serverIp(req) {
+  if (publicIp) return publicIp;
+  if (req.headers['x-forwarded-for']) return null; // atrás de outro proxy: o endereço local seria interno
+  return String(req.socket.localAddress || '').replace(/^::ffff:/, '') || null;
+}
 
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 const clients = new Map(); // id -> ws
@@ -130,6 +143,7 @@ const handlers = {
     sendRoom(room);
     return { ok: true, code: room.code };
   },
+  ping() {}, // só devolve a confirmação: o cliente mede o tempo de ida e volta
   leave(ws) { leaveRoom(ws); },
   setSlot(ws, { i, type } = {}) {
     const room = hostRoom(ws); if (!room) return;
@@ -164,10 +178,10 @@ function hostRoom(ws) {
   return room && room.hostId === ws.cid && room.phase === 'lobby' ? room : null;
 }
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
   ws.cid = crypto.randomBytes(6).toString('hex'); ws.room = null; ws.alive = true;
   clients.set(ws.cid, ws);
-  send(ws, { e: 'hello', d: { id: ws.cid } });
+  send(ws, { e: 'hello', d: { id: ws.cid, ip: serverIp(req) } });
   ws.on('pong', () => { ws.alive = true; });
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
